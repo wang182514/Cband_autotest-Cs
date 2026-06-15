@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="IviFoundation.Visa" Version="8.0.2" />
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
   </ItemGroup>
 
@@ -22,6 +23,16 @@
     <None Update="Config\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <!-- 排除其他项目的子目录，避免重复编译其生成文件 -->
+  <ItemGroup>
+    <Compile Remove="ConsoleApp1\**" />
+    <Compile Remove="WinFormsApp1\**" />
+    <None Remove="ConsoleApp1\**" />
+    <None Remove="WinFormsApp1\**" />
+    <EmbeddedResource Remove="ConsoleApp1\**" />
+    <EmbeddedResource Remove="WinFormsApp1\**" />
   </ItemGroup>
 
 </Project>

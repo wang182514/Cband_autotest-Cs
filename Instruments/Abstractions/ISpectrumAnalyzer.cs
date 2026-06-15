@@ -1,7 +1,11 @@
 namespace CbandAutoTest.Instruments.Abstractions;
 
+/// <summary>频谱仪工作模式：SA=频谱分析, NF=噪声系数, PN=相位噪声</summary>
 public enum SAnalyzerMode { SA, NF, PN }
 
+/// <summary>
+/// 频谱分析仪接口 —— 三种模式下的配置、测量、截图
+/// </summary>
 public interface ISpectrumAnalyzer : IInstrument
 {
     void SetMode(SAnalyzerMode mode);

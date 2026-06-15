@@ -2,11 +2,20 @@ using System.Text.Json;
 
 namespace CbandAutoTest.Config;
 
+/// <summary>
+/// 配置管理器 —— 负责 JSON 配置文件的读/写/合并
+/// 
+/// 采用"默认 + 用户覆盖"两层模型：
+///   default_settings.json  出厂默认（提交到 git，所有人共享）
+///   user_settings.json      用户自定义（不提交 git，每个人的 IP/COM 口不同）
+///   两者深度合并：用户只写需要覆盖的字段，其余保留默认值
+/// </summary>
 public class ConfigManager
 {
     private readonly string _defaultsPath;
-    private string? _userPath;
+    private string? _userPath;  // string? 表示这个字段可以是 null
 
+    /// <summary>仪器配置 —— 运行时始终持有最新的合并后配置</summary>
     public InstrumentConfig Instruments { get; set; } = new();
 
     public ConfigManager(string defaultsPath)
@@ -14,14 +23,23 @@ public class ConfigManager
         _defaultsPath = defaultsPath;
     }
 
+    /// <summary>
+    /// 加载出厂默认配置（default_settings.json）
+    /// 如果文件不存在则跳过（比如开发时还没创建）
+    /// </summary>
     public void LoadDefaults()
     {
         if (!File.Exists(_defaultsPath)) return;
+        // JsonElement 是 System.Text.Json 的 DOM 类型，类似 Python 的 dict
         var root = JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(_defaultsPath));
         if (root.TryGetProperty("instruments", out var inst))
             Instruments = JsonSerializer.Deserialize<InstrumentConfig>(inst.GetRawText()) ?? new InstrumentConfig();
     }
 
+    /// <summary>
+    /// 加载用户自定义配置（user_settings.json），深度合并到已有配置上
+    /// 用户只需写想覆盖的字段，未写到的字段保留默认值不变
+    /// </summary>
     public void LoadUser(string path)
     {
         if (!File.Exists(path)) return;
@@ -31,14 +49,22 @@ public class ConfigManager
         DeepMerge(inst);
     }
 
+    /// <summary>
+    /// 保存当前配置到 user_settings.json（带缩进的人类可读 JSON）
+    /// </summary>
     public void SaveUser(string path)
     {
         _userPath = path;
+        // Path.GetDirectoryName(path)!  —— 末尾的 ! 告诉编译器"我知道这不是 null"
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = new Dictionary<string, object> { ["instruments"] = Instruments };
         File.WriteAllText(path, JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    /// <summary>
+    /// 深度合并：逐字段检查用户 JSON 里是否写了某个值，写了才覆盖
+    /// 不写全量反序列化是因为用户可能只写了部分字段
+    /// </summary>
     private void DeepMerge(JsonElement o)
     {
         if (o.TryGetProperty("rx_power_supply", out var r))

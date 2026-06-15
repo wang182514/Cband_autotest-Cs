@@ -3,6 +3,12 @@ using CbandAutoTest.Instruments.Abstractions;
 
 namespace CbandAutoTest.Instruments;
 
+/// <summary>
+/// 开关矩阵驱动 —— 通过 UART 串口控制 UDC-0624F
+/// 
+/// 【通信原理】和 Python 的 pyserial 一样：打开 COM 口 → 发二进制帧 → 收回复
+///   帧格式：0x55 0x44 0x43 + 载荷 + 校验和（UDC 专有协议，非 SCPI）
+/// </summary>
 public class SwitchMatrix : ISwitchMatrix
 {
     private readonly string _comPort;

@@ -1,14 +1,21 @@
 using CbandAutoTest.Instruments.Abstractions;
+using Ivi.Visa;
 
 namespace CbandAutoTest.Instruments;
 
+/// <summary>
+/// 频谱分析仪驱动 —— 通过 VISA 协议控制 Keysight N9020A
+/// 支持三种模式：SA（频谱分析）、NF（噪声系数）、PN（相位噪声）
+/// 
+/// 通信方式和 SignalGenerator 一样（VISA + SCPI），只是命令集不同
+/// </summary>
 public class SpectrumAnalyzer : ISpectrumAnalyzer
 {
     private readonly string _ip;
     private readonly int _timeoutMs;
     private string _idn = "", _lastError = "";
     private bool _disposed;
-    private dynamic? _session;
+    private IMessageBasedSession? _session;  // VISA 会话对象
 
     public SpectrumAnalyzer(string ip, int timeoutMs = 10000)
     { _ip = ip; _timeoutMs = timeoutMs; }
@@ -20,16 +27,12 @@ public class SpectrumAnalyzer : ISpectrumAnalyzer
     public string Connect()
     {
         Disconnect(); _lastError = "";
-        var rmType = Type.GetType("Ivi.Visa.ResourceManager, Ivi.Visa")
-                     ?? Type.GetType("NationalInstruments.Visa.ResourceManager, NationalInstruments.Visa");
-        if (rmType == null)
-            throw new NotSupportedException("未找到 VISA 运行时。请安装 NI-VISA 或 Keysight VISA。");
-        var rm = Activator.CreateInstance(rmType);
-        _session = rmType.GetMethod("Open")?.Invoke(rm, [$"TCPIP0::{_ip}::inst0::INSTR"]);
-        if (_session == null) throw new Exception("VISA Open 失败");
-        var tProp = _session.GetType().GetProperty("TimeoutMilliseconds");
-        tProp?.SetValue(_session, _timeoutMs);
-        SetTermination();
+        _session = (IMessageBasedSession)GlobalResourceManager.Open(
+            $"TCPIP0::{_ip}::inst0::INSTR",
+            AccessModes.None,
+            _timeoutMs);
+        _session.TerminationCharacterEnabled = true;
+        _session.TerminationCharacter = 0x0A; // \n
         Write("*CLS");
         _idn = Query("*IDN?").Trim();
         return _idn;
@@ -37,7 +40,7 @@ public class SpectrumAnalyzer : ISpectrumAnalyzer
 
     public void Disconnect()
     {
-        try { _session?.Close(); } catch { }
+        try { _session?.Dispose(); } catch { }
         _session = null; _idn = "";
     }
 
@@ -150,10 +153,7 @@ public class SpectrumAnalyzer : ISpectrumAnalyzer
         Query("*OPC?");
         Thread.Sleep(500);
         Write($":MMEM:DATA? \"{internalPath}\"");
-        var raw = ReadRaw();
-        var imgData = raw.Length > 2 && raw[0] == '#'
-            ? raw.Skip(IndexOf(raw, (byte)'\n', 1) + 1).ToArray()
-            : raw.Skip(2).ToArray();
+        var imgData = ReadRaw(); // ReadBinaryBlockOfByte 自动处理 IEEE 488.2 二进制块头
         Directory.CreateDirectory(localDir);
         var fullPath = Path.Combine(localDir, localFilename);
         File.WriteAllBytes(fullPath, imgData);
@@ -161,30 +161,23 @@ public class SpectrumAnalyzer : ISpectrumAnalyzer
         return fullPath;
     }
 
-    private void Write(string cmd) { EnsureConnected(); _session!.Write(cmd); }
-    private string Query(string cmd) { EnsureConnected(); return _session!.Query(cmd); }
+    private void Write(string cmd)
+    {
+        EnsureConnected();
+        _session!.FormattedIO.WriteLine(cmd);
+    }
+
+    private string Query(string cmd)
+    {
+        EnsureConnected();
+        _session!.FormattedIO.WriteLine(cmd);
+        return _session!.FormattedIO.ReadLine();
+    }
 
     private byte[] ReadRaw()
     {
         EnsureConnected();
-        return (byte[])_session!.GetType().GetMethod("ReadRaw")!.Invoke(_session, null)!;
-    }
-
-    private void SetTermination()
-    {
-        try
-        {
-            _session!.GetType().GetProperty("ReadTermination")?.SetValue(_session, "\n");
-            _session!.GetType().GetProperty("WriteTermination")?.SetValue(_session, "\n");
-        }
-        catch { }
-    }
-
-    private static int IndexOf(byte[] arr, byte val, int start = 0)
-    {
-        for (int i = start; i < arr.Length; i++)
-            if (arr[i] == val) return i;
-        return -1;
+        return _session!.FormattedIO.ReadBinaryBlockOfByte();
     }
 
     private void EnsureConnected()
